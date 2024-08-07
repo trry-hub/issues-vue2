@@ -12,7 +12,7 @@
 
 <script>
 export default {
-  name: 'page-1',
+  name: 'page1',
   components: {
 
   },
