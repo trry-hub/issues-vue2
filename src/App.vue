@@ -4,19 +4,19 @@
     <HelloWorld msg="Welcome to Your Vue.js App"/>
     <router-link to="/page1">page1</router-link>
     <router-link to="/page2">page2</router-link>
-    <keep-alive include="page-1">
-      <router-view></router-view>
-    </keep-alive>
+    <EmptyLayout/>
   </div>
 </template>
 
 <script>
 import HelloWorld from './components/HelloWorld.vue'
+import EmptyLayout from '@/layout/EmptyLayout.vue'
 
 export default {
   name: 'App',
   components: {
-    HelloWorld
+    HelloWorld,
+    EmptyLayout
   }
 }
 </script>

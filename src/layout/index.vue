@@ -1,22 +1,20 @@
 <template>
   <div class="main">
+    <div>123</div>
     <div class="content">
       <transition name="fade-transform" mode="out-in">
         <EmptyLayout />
       </transition>
     </div>
-    <Footer />
   </div>
 </template>
 
 <script>
 import EmptyLayout from '@/layout/EmptyLayout.vue'
-import Footer from '@/components/Footer.vue'
 export default {
   name: 'Layout',
   components: {
-    EmptyLayout,
-    Footer
+    EmptyLayout
   }
 }
 </script>

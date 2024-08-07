@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "core-js": "^3.8.3",
+    "vant-ui": "^2.2.3",
     "vue": "^2.6.14",
     "vue-router": "^3.6.5"
   },

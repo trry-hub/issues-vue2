@@ -6,15 +6,16 @@
     </div>
 
     <router-link to="/page1/child-page">child-page</router-link>
-    <router-view></router-view>
+    <EmptyLayout />
   </div>
 </template>
 
 <script>
+import EmptyLayout from '@/layout/EmptyLayout.vue'
 export default {
   name: 'page1',
   components: {
-
+    EmptyLayout
   },
   props: {
 
