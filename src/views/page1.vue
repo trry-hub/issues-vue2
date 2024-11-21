@@ -681,6 +681,12 @@ export default {
 
     // 修改颜色验证执行方法
     async performColorValidation() {
+      if (!this.modelReady) {
+        this.$toast('请等待模型加载完成');
+        return;
+      }
+      
+      this.isColorTesting = true;
       this.createColorOverlay();
       
       const testColors = [
@@ -692,36 +698,52 @@ export default {
       const results = [];
       const shuffledColors = testColors.sort(() => Math.random() - 0.5);
       
-      for (let i = 0; i < shuffledColors.length; i++) {
-        const color = shuffledColors[i];
-        this.colorOverlay.style.backgroundColor = color;
-        
-        // 等待颜色反射稳定
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        // 增加采样次数到5次，并使用多数表决
-        const sampleResults = [];
-        for(let j = 0; j < 5; j++) {
-          const result = await this.analyzeColorReflection(color);
-          sampleResults.push(result);
-          await new Promise(resolve => setTimeout(resolve, 100));
+      try {
+        for (let i = 0; i < shuffledColors.length; i++) {
+          const color = shuffledColors[i];
+          this.colorOverlay.style.backgroundColor = color;
+          
+          // 等待颜色稳定
+          await new Promise(resolve => setTimeout(resolve, 800));
+          
+          // 进行多次采样
+          const sampleResults = [];
+          let validSamples = 0;
+          
+          for(let j = 0; j < 5; j++) {
+            const faces = await this.detector.estimateFaces(this.$refs.video);
+            if (!faces || faces.length === 0) continue;
+            
+            const face = faces[0];
+            const isFrontalFace = await this.checkFrontalFace(face);
+            
+            if (isFrontalFace) {
+              validSamples++;
+              const result = await this.analyzeColorReflection(color);
+              if (result) sampleResults.push(result);
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+          
+          // 只要有足够的有效样本就进行判断
+          const bestResult = validSamples >= 3 && sampleResults.length >= 2;
+          results.push(bestResult);
+          
+          if (this.debugMode) {
+            console.log(`颜色 ${color} 有效样本数:`, validSamples);
+            console.log(`颜色 ${color} 通过样本数:`, sampleResults.length);
+            console.log(`颜色 ${color} 最终结果:`, bestResult);
+          }
         }
-        
-        // 使用多数表决确定最终结果
-        const trueCount = sampleResults.filter(Boolean).length;
-        const bestResult = trueCount >= 3; // 超过半数即为通过
-        
-        results.push(bestResult);
-        
-        if (this.debugMode) {
-          console.log(`颜色 ${color} 采样结果:`, sampleResults);
-          console.log(`颜色 ${color} 最终结果:`, bestResult);
-        }
+      } catch (error) {
+        console.error('颜色验证错误:', error);
+        this.$toast('验证失败，请重试');
+      } finally {
+        this.removeColorOverlay();
+        this.isColorTesting = false;
       }
       
-      this.removeColorOverlay();
-      
-      // 要求至少两种颜色通过
       const passCount = results.filter(Boolean).length;
       return passCount >= 2;
     },
@@ -751,31 +773,140 @@ export default {
       }
     },
 
-    // 分析颜色反射
-    async analyzeColorReflection(currentColor) {
-      const video = this.$refs.video;
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+    // 修改颜色数据分析方法
+    async analyzeColorReflection(color) {
+      // 设置canvas优化属性
+      const ctx = this.$refs.canvas.getContext('2d', {
+        willReadFrequently: true
+      });
+      
+      // 连续采集多帧进行对比
+      const samples = [];
+      for (let i = 0; i < 3; i++) {
+        const faces = await this.detector.estimateFaces(this.$refs.video);
+        if (!faces || faces.length === 0) return false;
 
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      const faces = await this.detector.estimateFaces(video);
-      if (!faces || faces.length === 0) return false;
-
-      const face = faces[0];
-      const faceBox = this.getFaceBoundingBox(face);
-
-      const imageData = ctx.getImageData(
-        faceBox.x,
-        faceBox.y,
-        faceBox.width,
-        faceBox.height
+        const face = faces[0];
+        const faceBox = this.getFaceBoundingBox(face);
+        
+        // 将当前视频帧绘制到canvas
+        ctx.drawImage(this.$refs.video, 0, 0, this.width, this.height);
+        
+        // 获取面部区域的图像数据
+        const imageData = ctx.getImageData(
+          faceBox.x,
+          faceBox.y,
+          faceBox.width,
+          faceBox.height
+        );
+        
+        // 计算RGB均值和最大值
+        let totalPixels = 0;
+        let avgR = 0, avgG = 0, avgB = 0;
+        let maxR = 0, maxG = 0, maxB = 0;
+        
+        for (let j = 0; j < imageData.data.length; j += 4) {
+          const r = imageData.data[j];
+          const g = imageData.data[j + 1];
+          const b = imageData.data[j + 2];
+          
+          avgR += r;
+          avgG += g;
+          avgB += b;
+          
+          maxR = Math.max(maxR, r);
+          maxG = Math.max(maxG, g);
+          maxB = Math.max(maxB, b);
+          
+          totalPixels++;
+        }
+        
+        samples.push({
+          avg: {
+            r: avgR / totalPixels,
+            g: avgG / totalPixels,
+            b: avgB / totalPixels
+          },
+          max: {
+            r: maxR,
+            g: maxG,
+            b: maxB
+          },
+          timestamp: Date.now()
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      // 检查样本之间的变化
+      const variations = [];
+      for (let i = 1; i < samples.length; i++) {
+        const prev = samples[i - 1].avg;
+        const curr = samples[i].avg;
+        
+        variations.push({
+          r: Math.abs(curr.r - prev.r),
+          g: Math.abs(curr.g - prev.g),
+          b: Math.abs(curr.b - prev.b)
+        });
+      }
+      
+      // 计算平均变化率
+      const avgVariation = variations.reduce((acc, curr) => ({
+        r: acc.r + curr.r,
+        g: acc.g + curr.g,
+        b: acc.b + curr.b
+      }), { r: 0, g: 0, b: 0 });
+      
+      avgVariation.r /= variations.length;
+      avgVariation.g /= variations.length;
+      avgVariation.b /= variations.length;
+      
+      if (this.debugMode) {
+        console.log('颜色变化率:', avgVariation);
+      }
+      
+      // 检查变化率
+      const MIN_VARIATION = 0.05;
+      const hasVariation = (
+        avgVariation.r > MIN_VARIATION ||
+        avgVariation.g > MIN_VARIATION ||
+        avgVariation.b > MIN_VARIATION
       );
-
-      return this.analyzeColorData(imageData.data, currentColor);
+      
+      if (!hasVariation) return false;
+      
+      // 分析最后一帧的颜色数据
+      const lastSample = samples[samples.length - 1];
+      const { avg, max } = lastSample;
+      
+      // 计算颜色比例
+      const totalAvg = avg.r + avg.g + avg.b;
+      const rRatio = avg.r / totalAvg;
+      const gRatio = avg.g / totalAvg;
+      const bRatio = avg.b / totalAvg;
+      
+      // 计算最大值比例
+      const totalMax = max.r + max.g + max.b;
+      const rMaxRatio = max.r / totalMax;
+      const gMaxRatio = max.g / totalMax;
+      const bMaxRatio = max.b / totalMax;
+      
+      if (this.debugMode) {
+        console.log('颜色比例:', { avg: { rRatio, gRatio, bRatio }, max: { rMaxRatio, gMaxRatio, bMaxRatio } });
+      }
+      
+      // 根据当前显示的颜色判断
+      switch (color) {
+        case '#FF0000':
+          return rRatio > 0.35 || rMaxRatio > 0.38;
+        case '#00FF00':
+          return gRatio > 0.32 || gMaxRatio > 0.35;
+        case '#0000FF':
+          return bRatio > 0.30 || bMaxRatio > 0.33;
+        default:
+          return false;
+      }
     },
 
     // 获取人脸边界框
@@ -882,6 +1013,94 @@ export default {
     analyzeValidationResults(results) {
       const passRate = results.filter(Boolean).length / results.length;
       return passRate > 0.5;
+    },
+
+    // 修改正脸检测方法
+    async checkFrontalFace(face) {
+      // 获取关键点
+      const leftEye = face.keypoints[33];     // 左眼角
+      const rightEye = face.keypoints[263];   // 右眼角
+      const nose = face.keypoints[1];         // 鼻尖
+      const leftMouth = face.keypoints[61];   // 左嘴角
+      const rightMouth = face.keypoints[291]; // 右嘴角
+      
+      // 计算面部对称性
+      const eyeDistance = Math.abs(rightEye.x - leftEye.x);
+      const mouthDistance = Math.abs(rightMouth.x - leftMouth.x);
+      const noseDeviation = Math.abs((leftEye.x + rightEye.x) / 2 - nose.x);
+      
+      // 放宽判断标准
+      const isSymmetric = (
+        noseDeviation / eyeDistance < 0.15 &&  // 鼻子偏移容忍度增加
+        Math.abs(eyeDistance - mouthDistance) / eyeDistance < 0.5  // 眼距和嘴距比例容忍度增加
+      );
+      
+      // 添加姿态检测
+      const leftEyeY = leftEye.y;
+      const rightEyeY = rightEye.y;
+      const eyeYDiff = Math.abs(leftEyeY - rightEyeY);
+      const isLevelFace = eyeYDiff / eyeDistance < 0.15; // 允许轻微的头部倾斜
+      
+      if (this.debugMode) {
+        console.log('面部检测:', {
+          noseDeviation: (noseDeviation / eyeDistance).toFixed(3),
+          mouthEyeRatio: (Math.abs(eyeDistance - mouthDistance) / eyeDistance).toFixed(3),
+          eyeTilt: (eyeYDiff / eyeDistance).toFixed(3)
+        });
+      }
+      
+      return isSymmetric && isLevelFace;
+    },
+
+    // 添加表情变化检测方法
+    async checkExpressionChange(face) {
+      // 获取关键点
+      const upperLip = face.keypoints[13];    // 上唇
+      const lowerLip = face.keypoints[14];    // 下唇
+      const leftEyeTop = face.keypoints[159]; // 左眼上
+      const leftEyeBottom = face.keypoints[145]; // 左眼下
+      const rightEyeTop = face.keypoints[386];  // 右眼上
+      const rightEyeBottom = face.keypoints[374]; // 右眼下
+      
+      // 计算眼睛和嘴巴的开合度
+      const mouthOpen = Math.abs(upperLip.y - lowerLip.y);
+      const leftEyeOpen = Math.abs(leftEyeTop.y - leftEyeBottom.y);
+      const rightEyeOpen = Math.abs(rightEyeTop.y - rightEyeBottom.y);
+      
+      // 存储历史数据用于检测变化
+      if (!this.expressionHistory) {
+        this.expressionHistory = [];
+      }
+      
+      this.expressionHistory.push({
+        mouthOpen,
+        leftEyeOpen,
+        rightEyeOpen,
+        timestamp: Date.now()
+      });
+      
+      // 只保留最近的记录
+      if (this.expressionHistory.length > 10) {
+        this.expressionHistory.shift();
+      }
+      
+      // 检测是否有自然的表情变化
+      if (this.expressionHistory.length < 3) return true;
+      
+      const variations = this.expressionHistory.slice(-3).map((record, i, arr) => {
+        if (i === 0) return 0;
+        return Math.abs(record.mouthOpen - arr[i-1].mouthOpen) +
+               Math.abs(record.leftEyeOpen - arr[i-1].leftEyeOpen) +
+               Math.abs(record.rightEyeOpen - arr[i-1].rightEyeOpen);
+      });
+      
+      const hasChange = variations.some(v => v > 0.02); // 阈值可调
+      
+      if (this.debugMode) {
+        console.log('表情变化:', variations);
+      }
+      
+      return hasChange;
     }
   },
 
