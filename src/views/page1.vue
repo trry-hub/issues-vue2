@@ -90,7 +90,7 @@ export default {
       ],
       lastActionTime: 0,  // 添加最后一次动作时间戳
       actionCooldown: 2000,  // 动作冷却时间（毫秒）
-      debugMode: false,  // 是否开启调试模式
+      debugMode: false,  // 是否开启模式
       modelReady: false, // 添加模型就绪状态
       lookingDownCounter: 0,
       isLoading: true,  // 添加加载状态
@@ -280,7 +280,7 @@ export default {
           }
         });
       } catch (error) {
-        console.error('渲染错误:', error);
+        console.error('渲染错��:', error);
         if (this.isCameraOpen) {
           this.renderPrediction(); // 发生错误时继续尝试渲染
         }
@@ -303,85 +303,89 @@ export default {
     isWink(face, ctx) {
       if (this.currentDetectAction !== 3) return;
       
-      // 获取眼睛关键点
-      const leftEyeUpper1 = face.keypoints[159];  // 左眼上缘中点
-      const leftEyeLower1 = face.keypoints[145];  // 左眼下缘中点
-      const rightEyeUpper1 = face.keypoints[386]; // 右眼上缘中点
-      const rightEyeLower1 = face.keypoints[374]; // 右眼下缘中点
+      // 获取关键面部点位
+      const leftEye = face.keypoints[33];     // 左眼角
+      const rightEye = face.keypoints[263];   // 右眼角
+      const nose = face.keypoints[1];         // 鼻尖
+      const chin = face.keypoints[152];       // 下巴
+      const foreHead = face.keypoints[10];    // 前额
       
-      // 获取头部姿态关键点用于判断头部是否正对摄像头
-      const leftEye = face.keypoints[33];   // 左眼角
-      const rightEye = face.keypoints[263];  // 右眼角
-      const nose = face.keypoints[1];        // 鼻尖
-      
-      // 计算眼睛开合度
-      const leftEyeDistance = Math.abs(leftEyeUpper1.y - leftEyeLower1.y);
-      const rightEyeDistance = Math.abs(rightEyeUpper1.y - rightEyeLower1.y);
-      
-      // 计算眼睛开合度的比例
-      const leftRatio = leftEyeDistance / this.height;
-      const rightRatio = rightEyeDistance / this.height;
-      
-      // 计算头部水平倾斜度
-      const eyesDeltaX = Math.abs(leftEye.x - rightEye.x);
-      const eyesDeltaY = Math.abs(leftEye.y - rightEye.y);
-      const headTiltRatio = eyesDeltaY / eyesDeltaX;
-      
-      // 计算头部是否正对摄像头
+      // 1. 检查水平方向的正脸（左右转头）
       const leftEyeToNose = Math.abs(leftEye.x - nose.x);
       const rightEyeToNose = Math.abs(rightEye.x - nose.x);
-      const eyeSymmetryRatio = Math.abs(leftEyeToNose - rightEyeToNose) / Math.max(leftEyeToNose, rightEyeToNose);
+      const eyeDistanceDiff = Math.abs(leftEyeToNose - rightEyeToNose);
+      const eyeDistance = Math.abs(rightEye.x - leftEye.x);
+      const horizontalRatio = eyeDistanceDiff / eyeDistance;
+      
+      // 2. 检查抬头角度（使用前额-鼻子-下巴的角度）
+      const foreHeadToNose = Math.abs(foreHead.y - nose.y);
+      const noseToChin = Math.abs(nose.y - chin.y);
+      const verticalRatio = foreHeadToNose / noseToChin;
       
       if (this.debugMode) {
-        console.log('眨眼检测:', {
-          leftRatio,
-          rightRatio,
-          headTiltRatio,
-          eyeSymmetryRatio
+        console.log('姿态检测:', {
+          horizontalRatio,
+          verticalRatio,
+          foreHeadToNose,
+          noseToChin
         });
       }
       
-      // 初始化眨眼状态
+      // 调整阈值：进一步放松抬头限制
+      const HORIZONTAL_THRESHOLD = 0.45;      // 保持水平方向阈值不变
+      const VERTICAL_THRESHOLD_MIN = 0.75;     // 保持最小阈值不变
+      const VERTICAL_THRESHOLD_MAX = 2.0;     // 显著提高最大阈值，大幅放松抬头限制
+      
+      if (horizontalRatio > HORIZONTAL_THRESHOLD || 
+          verticalRatio < VERTICAL_THRESHOLD_MIN || 
+          verticalRatio > VERTICAL_THRESHOLD_MAX) {
+        if (this.debugMode) {
+          console.log('请保持头部正直，不要过度抬头或低头');
+        }
+        return;
+      }
+      
+      // 眨眼检测逻辑保持不变
+      const leftEyeUpper1 = face.keypoints[159];
+      const leftEyeLower1 = face.keypoints[145];
+      const rightEyeUpper1 = face.keypoints[386];
+      const rightEyeLower1 = face.keypoints[374];
+      
+      const leftEyeDistance = Math.abs(leftEyeUpper1.y - leftEyeLower1.y);
+      const rightEyeDistance = Math.abs(rightEyeUpper1.y - rightEyeLower1.y);
+      
+      const leftEyeWidth = Math.abs(face.keypoints[33].x - face.keypoints[133].x);
+      const rightEyeWidth = Math.abs(face.keypoints[362].x - face.keypoints[263].x);
+      
+      const leftEyeRatio = leftEyeDistance / leftEyeWidth;
+      const rightEyeRatio = rightEyeDistance / rightEyeWidth;
+      
+      if (this.debugMode) {
+        console.log('眨眼检测:', {
+          leftEyeRatio,
+          rightEyeRatio
+        });
+      }
+      
       if (!this.winkState) {
         this.winkState = {
-          counter: 0,
-          lastTime: Date.now(),
-          isEyesClosed: false
+          isWinking: false,
+          lastWinkTime: 0
         };
       }
       
       const now = Date.now();
+      const WINK_THRESHOLD = 0.25;
       
-      // 设置阈值
-      const BLINK_THRESHOLD = 0.018;        // 眼睛闭合的阈值
-      const HEAD_TILT_THRESHOLD = 0.15;     // 头部倾斜的阈值
-      const SYMMETRY_THRESHOLD = 0.2;       // 头部正对的阈值
-      const MIN_FRAMES = 2;                 // 最少需要连续检测到的帧数
-      
-      // 检查头部��于正确位置
-      const isHeadStraight = headTiltRatio < HEAD_TILT_THRESHOLD && eyeSymmetryRatio < SYMMETRY_THRESHOLD;
-      
-      // 检测眨眼
-      if (isHeadStraight && leftRatio < BLINK_THRESHOLD && rightRatio < BLINK_THRESHOLD) {
-        if (!this.winkState.isEyesClosed) {
-          this.winkState.counter++;
-          this.winkState.isEyesClosed = true;
+      if ((leftEyeRatio < WINK_THRESHOLD || rightEyeRatio < WINK_THRESHOLD) && 
+          (now - this.winkState.lastWinkTime > 500)) {
+        if (!this.winkState.isWinking) {
+          this.triggerAction(3);
+          this.winkState.isWinking = true;
+          this.winkState.lastWinkTime = now;
         }
-      } else {
-        this.winkState.isEyesClosed = false;
-        
-        // 如果超过500ms没有检测到眨眼，重置计数器
-        if (now - this.winkState.lastTime > 500) {
-          this.winkState.counter = 0;
-        }
-      }
-      
-      this.winkState.lastTime = now;
-      
-      // 当累计到足够的帧数且头部正时触发��作
-      if (this.winkState.counter >= MIN_FRAMES && isHeadStraight) {
-        this.triggerAction(3);
-        this.winkState.counter = 0;
+      } else if (leftEyeRatio > WINK_THRESHOLD && rightEyeRatio > WINK_THRESHOLD) {
+        this.winkState.isWinking = false;
       }
     },
 
@@ -436,41 +440,48 @@ export default {
     isLookingDown(face, ctx) {
       if (this.currentDetectAction !== 7) return;
       
-      const leftEye = face.keypoints[159];  // 左眼中心
-      const rightEye = face.keypoints[386]; // 右眼中心
-      const nose = face.keypoints[1];       // 鼻尖
-      const mouth = face.keypoints[0];      // 嘴巴中心点
-      const chin = face.keypoints[152];     // 下巴点
+      // 获取关键点
+      const nose = face.keypoints[1];        // 鼻尖
+      const leftEye = face.keypoints[33];    // 左眼角
+      const rightEye = face.keypoints[263];  // 右眼角
+      const chin = face.keypoints[152];      // 下巴
       
-      // 计算眼睛中心点的Y坐标
-      const eyeY = (leftEye.y + rightEye.y) / 2;
+      // 计算眼睛中点的y坐标
+      const eyesCenterY = (leftEye.y + rightEye.y) / 2;
       
-      // 计算从眼睛到下巴的垂直距离
-      const verticalDistance = chin.y - eyeY;
+      // 计算鼻子到眼睛中点的垂直距离
+      const noseToEyesDistance = nose.y - eyesCenterY;
       
-      // 计算从子到嘴巴的距离
-      const noseToMouthDistance = mouth.y - nose.y;
+      // 计算下巴到眼睛的垂直距离
+      const chinToEyesDistance = chin.y - eyesCenterY;
       
-      // 计算比例
-      const ratio = verticalDistance / this.height;
-      const noseRatio = noseToMouthDistance / this.height;
+      // 计算低头比率
+      const lookDownRatio = noseToEyesDistance / chinToEyesDistance;
       
       if (this.debugMode) {
         console.log('低头检测:', {
-          verticalRatio: ratio,
-          noseToMouthRatio: noseRatio
+          noseToEyesDistance,
+          chinToEyesDistance,
+          lookDownRatio
         });
       }
       
-      // 使用多个条件来判断低头
-      if (ratio > 0.25 && noseRatio > 0.08) {
-        this.lookingDownCounter++;
-        if (this.lookingDownCounter >= 3) { // 需要连续3帧才触发
+      // 初始化低头状态
+      if (!this.lookDownState) {
+        this.lookDownState = {
+          isLookingDown: false
+        };
+      }
+      
+      const LOOK_DOWN_THRESHOLD = 0.45; // 增加阈值，使其需要更明显的低头动作
+      
+      if (lookDownRatio > LOOK_DOWN_THRESHOLD) {
+        if (!this.lookDownState.isLookingDown) {
           this.triggerAction(7);
-          this.lookingDownCounter = 0;
+          this.lookDownState.isLookingDown = true;
         }
       } else {
-        this.lookingDownCounter = 0;
+        this.lookDownState.isLookingDown = false;
       }
     },
 
@@ -478,37 +489,30 @@ export default {
     isOpenMouth(face, ctx) {
       if (this.currentDetectAction !== 2) return;
       
-      // 获取嘴部关键点
-      const upperLip = face.keypoints[13];  // 上唇中点
-      const lowerLip = face.keypoints[14];  // 下唇中点
+      // 获取关键点
+      const upperLip = face.keypoints[13];    // 上嘴唇
+      const lowerLip = face.keypoints[14];    // 下嘴唇
+      const leftMouth = face.keypoints[78];   // 嘴角左
+      const rightMouth = face.keypoints[308]; // 嘴角右
       
-      // 计算嘴部开合度
-      const mouthDistance = Math.abs(upperLip.y - lowerLip.y);
-      const mouthRatio = mouthDistance / this.height;
+      // 计算嘴巴开合程度
+      const mouthHeight = Math.abs(upperLip.y - lowerLip.y);
+      const mouthWidth = Math.abs(leftMouth.x - rightMouth.x);
+      const mouthRatio = mouthHeight / mouthWidth;
       
       if (this.debugMode) {
         console.log('张嘴检测:', {
-          mouthDistance,
+          mouthHeight,
+          mouthWidth,
           mouthRatio
         });
       }
       
-      // 初始化张嘴状态
-      if (!this.mouthState) {
-        this.mouthState = {
-          isOpenMouth: false
-        };
-      }
+      // 调整阈值：放宽张嘴判定
+      const MOUTH_OPEN_THRESHOLD = 0.35;  // 从 0.4 降低到 0.35，放宽张嘴要求
       
-      const OPEN_MOUTH_THRESHOLD = 0.07; // 降低阈值，使其更容易触发
-      
-      if (mouthRatio > OPEN_MOUTH_THRESHOLD) {
-        if (!this.mouthState.isOpenMouth) {
-          this.triggerAction(2);
-          this.mouthState.isOpenMouth = true;
-        }
-      } else {
-        this.mouthState.isOpenMouth = false;
+      if (mouthRatio > MOUTH_OPEN_THRESHOLD) {
+        this.triggerAction(2);
       }
     },
 
