@@ -358,7 +358,7 @@ export default {
       const SYMMETRY_THRESHOLD = 0.2;       // 头部正对的阈值
       const MIN_FRAMES = 2;                 // 最少需要连续检测到的帧数
       
-      // 检查头部是否处于正确位置
+      // 检查头部��于正确位置
       const isHeadStraight = headTiltRatio < HEAD_TILT_THRESHOLD && eyeSymmetryRatio < SYMMETRY_THRESHOLD;
       
       // 检测眨眼
@@ -378,7 +378,7 @@ export default {
       
       this.winkState.lastTime = now;
       
-      // 当累计到足够的帧数且头部正时触发动作
+      // 当累计到足够的帧数且头部正时触发��作
       if (this.winkState.counter >= MIN_FRAMES && isHeadStraight) {
         this.triggerAction(3);
         this.winkState.counter = 0;
@@ -448,7 +448,7 @@ export default {
       // 计算从眼睛到下巴的垂直距离
       const verticalDistance = chin.y - eyeY;
       
-      // 计算从鼻子到嘴巴的距离
+      // 计算从子到嘴巴的距离
       const noseToMouthDistance = mouth.y - nose.y;
       
       // 计算比例
@@ -478,17 +478,37 @@ export default {
     isOpenMouth(face, ctx) {
       if (this.currentDetectAction !== 2) return;
       
-      const upperLip = face.keypoints[13];
-      const lowerLip = face.keypoints[14];
-      const leftCorner = face.keypoints[61];
-      const rightCorner = face.keypoints[291];
+      // 获取嘴部关键点
+      const upperLip = face.keypoints[13];  // 上唇中点
+      const lowerLip = face.keypoints[14];  // 下唇中点
       
-      let mouthHeight = Math.abs(upperLip.y - lowerLip.y);
-      let mouthWidth = Math.abs(leftCorner.x - rightCorner.x);
-      let ratio = mouthHeight / mouthWidth;
+      // 计算嘴部开合度
+      const mouthDistance = Math.abs(upperLip.y - lowerLip.y);
+      const mouthRatio = mouthDistance / this.height;
       
-      if (ratio > 0.5) {
-        this.triggerAction(2);
+      if (this.debugMode) {
+        console.log('张嘴检测:', {
+          mouthDistance,
+          mouthRatio
+        });
+      }
+      
+      // 初始化张嘴状态
+      if (!this.mouthState) {
+        this.mouthState = {
+          isOpenMouth: false
+        };
+      }
+      
+      const OPEN_MOUTH_THRESHOLD = 0.07; // 降低阈值，使其更容易触发
+      
+      if (mouthRatio > OPEN_MOUTH_THRESHOLD) {
+        if (!this.mouthState.isOpenMouth) {
+          this.triggerAction(2);
+          this.mouthState.isOpenMouth = true;
+        }
+      } else {
+        this.mouthState.isOpenMouth = false;
       }
     },
 
@@ -566,16 +586,13 @@ export default {
     isLookingLeft(face, ctx) {
       if (this.currentDetectAction !== 4) return;
       
-      // 获取关键点
       const leftEye = face.keypoints[33];   // 左眼角
       const rightEye = face.keypoints[263]; // 右眼角
       const nose = face.keypoints[1];       // 鼻尖
       
-      // 计算眼睛到鼻子的水平距离
       const leftEyeToNose = Math.abs(leftEye.x - nose.x);
       const rightEyeToNose = Math.abs(rightEye.x - nose.x);
       
-      // 计算左右眼到鼻子的距离差异
       const eyeNoseDiff = leftEyeToNose - rightEyeToNose;
       
       if (this.debugMode) {
@@ -586,42 +603,21 @@ export default {
         });
       }
       
-      // 初始化或更新左转头状态
       if (!this.lookLeftState) {
         this.lookLeftState = {
-          counter: 0,
-          lastTime: Date.now(),
           isLookingLeft: false
         };
       }
       
-      const now = Date.now();
+      const LOOK_LEFT_THRESHOLD = 50; // 调整到 50
       
-      // 设置较低的阈值
-      const LOOK_LEFT_THRESHOLD = 10; // 左转头的距离差异阈值
-      const MIN_FRAMES = 2;           // 最少需要连续检测到的帧数
-      
-      // 检测左转头
       if (eyeNoseDiff > LOOK_LEFT_THRESHOLD) {
         if (!this.lookLeftState.isLookingLeft) {
-          this.lookLeftState.counter++;
+          this.triggerAction(4);
           this.lookLeftState.isLookingLeft = true;
         }
       } else {
         this.lookLeftState.isLookingLeft = false;
-        
-        // 如果超过500ms没有检测到左转头，重置计数器
-        if (now - this.lookLeftState.lastTime > 500) {
-          this.lookLeftState.counter = 0;
-        }
-      }
-      
-      this.lookLeftState.lastTime = now;
-      
-      // 当累计到足够的帧数时触发动作
-      if (this.lookLeftState.counter >= MIN_FRAMES) {
-        this.triggerAction(4);
-        this.lookLeftState.counter = 0;
       }
     },
 
@@ -629,16 +625,13 @@ export default {
     isLookingRight(face, ctx) {
       if (this.currentDetectAction !== 5) return;
       
-      // 获取关键点
       const leftEye = face.keypoints[33];   // 左眼角
       const rightEye = face.keypoints[263]; // 右眼角
       const nose = face.keypoints[1];       // 鼻尖
       
-      // 计算眼睛到鼻子的水平距离
       const leftEyeToNose = Math.abs(leftEye.x - nose.x);
       const rightEyeToNose = Math.abs(rightEye.x - nose.x);
       
-      // 计算左右眼到鼻子的距离差异
       const eyeNoseDiff = rightEyeToNose - leftEyeToNose;
       
       if (this.debugMode) {
@@ -649,42 +642,21 @@ export default {
         });
       }
       
-      // 初始化或更新右转头状态
       if (!this.lookRightState) {
         this.lookRightState = {
-          counter: 0,
-          lastTime: Date.now(),
           isLookingRight: false
         };
       }
       
-      const now = Date.now();
+      const LOOK_RIGHT_THRESHOLD = 50; // 调整到 50
       
-      // 设置阈值
-      const LOOK_RIGHT_THRESHOLD = 10; // 右转头的距离差异阈值
-      const MIN_FRAMES = 2;            // 最少需要连续检测到的帧数
-      
-      // 检测右转头
       if (eyeNoseDiff > LOOK_RIGHT_THRESHOLD) {
         if (!this.lookRightState.isLookingRight) {
-          this.lookRightState.counter++;
+          this.triggerAction(5);
           this.lookRightState.isLookingRight = true;
         }
       } else {
         this.lookRightState.isLookingRight = false;
-        
-        // 如果超过500ms没有检测到右转头，重置计数器
-        if (now - this.lookRightState.lastTime > 500) {
-          this.lookRightState.counter = 0;
-        }
-      }
-      
-      this.lookRightState.lastTime = now;
-      
-      // 当累计到足够的帧数时触发动作
-      if (this.lookRightState.counter >= MIN_FRAMES) {
-        this.triggerAction(5);
-        this.lookRightState.counter = 0;
       }
     }
   },
