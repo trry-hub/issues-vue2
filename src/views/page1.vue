@@ -11,22 +11,20 @@
     <!-- 动作按钮组 -->
     <div class="action-buttons">
       <!-- 自动模式按钮 -->
-      <van-button 
-        @click="startAutoMode" 
-        :type="isAutoMode ? 'primary' : 'default'"
-        :disabled="isAutoMode"
-      >
+      <van-button @click="startAutoMode" :type="isAutoMode ? 'primary' : 'default'" :disabled="isAutoMode">
         自动模式
       </van-button>
 
+      <!-- 颜色验证按钮 -->
+      <van-button @click="startColorValidation" :type="isColorTesting ? 'primary' : 'default'"
+                  :disabled="isColorTesting || isAutoMode">
+        颜色验证
+      </van-button>
+
       <!-- 单个动作按钮 -->
-      <van-button 
-        v-for="action in actionList" 
-        :key="action.value"
-        @click="handleActionClick(action)" 
-        :type="!isAutoMode && currentDetectAction === action.value ? 'primary' : 'default'"
-        :disabled="isAutoMode"
-      >
+      <van-button v-for="action in actionList" :key="action.value" @click="handleActionClick(action)"
+                  :type="!isAutoMode && currentDetectAction === action.value ? 'primary' : 'default'"
+                  :disabled="isAutoMode || isColorTesting">
         {{ action.name }}
       </van-button>
     </div>
@@ -35,19 +33,6 @@
     <div class="current-action" v-if="isAutoMode">
       <p>当前动作：{{ autoActionList[currentAutoIndex]?.name }}</p>
       <p>进度：{{ currentAutoIndex + 1 }}/{{ autoActionList.length }}</p>
-    </div>
-
-    <!-- 镜像按钮 -->
-    <div class="bottom-buttons">
-      <div class="FlipHorizontal-toggle" :class="{ FlipHorizontalIng: flipHorizontal }" 
-           title="左右镜像" @click="triggerToggleFlipHorizontal">
-        <svg t="1663289810507" class="icon" viewBox="0 0 1117 1024" version="1.1" xmlns="http://www.w3.org/2000/svg"
-             p-id="3494" width="128" height="128">
-          <path d="M442.898361 116.049051l2.23404 0.74468L74.840328 1.368349A61.901515 61.901515 0 0 0 0 61.966675v883.283427a61.9946 61.9946 0 0 0 74.840328 60.598326l379.507486-118.124847a77.074368 77.074368 0 0 0 41.981329-68.510549V189.58619a77.539793 77.539793 0 0 0-53.430782-73.537139zM403.244157 792.218386L93.084986 874.412428V132.618179l310.159171 82.380212v577.12691zM1054.466716 0.065159a77.260538 77.260538 0 0 0-12.845728 1.30319L675.796995 115.490542l1.30319-0.18617a77.446708 77.446708 0 0 0-56.968012 74.467988v629.161417c0 29.88028 17.034552 55.850991 41.981329 68.696719l379.228231 118.217932a61.9946 61.9946 0 0 0 75.026498-60.691411V61.966675a61.529175 61.529175 0 0 0-61.901515-61.808431z"
-                fill="#ffffff" opacity=".801" p-id="3495">
-          </path>
-        </svg>
-      </div>
     </div>
 
     <!-- 添加加载状态遮罩 -->
@@ -75,7 +60,6 @@ export default {
       ModelLoading: false,
       detector: null,
       rafId: null,
-      flipHorizontal: true,
       currentDetectAction: null,
       isAutoMode: false,
       autoActionList: [],
@@ -88,15 +72,18 @@ export default {
         { name: '抬头', value: 6 },
         { name: '低头', value: 7 }
       ],
-      lastActionTime: 0,  // 添加最后一次动作时间戳
-      actionCooldown: 2000,  // 动作冷却时间（毫秒）
-      debugMode: false,  // 是否开启模式
-      modelReady: false, // 添加模型就绪状态
+      lastActionTime: 0,
+      actionCooldown: 2000,
+      debugMode: false,
+      modelReady: false,
       lookingDownCounter: 0,
-      isLoading: true,  // 添加加载状态
-      loadingText: '模型加载中...',  // 添加加载提示文本
-      loadFailed: false,  // 添加加载失败状态
+      isLoading: true,
+      loadingText: '模型加载中...',
+      loadFailed: false,
       winkState: null,
+      isColorTesting: false,
+      colorTestResult: false,
+      colorOverlay: null,
     }
   },
 
@@ -107,15 +94,15 @@ export default {
           reject('模型正在加载中');
           return;
         }
-        
+
         this.ModelLoading = true;
         this.loadingText = '正在加载模型...';
-        
+
         try {
           const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
           const detectorConfig = {
             runtime: 'mediapipe',
-            solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619',  // 指定具体版本
+            solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619',
             maxFaces: 1,
             refineLandmarks: false,
           };
@@ -138,7 +125,7 @@ export default {
       this.isLoading = true;
       this.loadFailed = false;
       this.loadingText = '正在初始化摄像头...';
-      
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
@@ -148,12 +135,12 @@ export default {
             facingMode: 'user'
           }
         });
-        
+
         this.mediaStreamTrack = stream;
         const video = this.$refs.video;
         video.srcObject = stream;
         video.style.transform = 'scale(-1, 1)';
-        
+
         await new Promise((resolve) => {
           video.onloadedmetadata = () => {
             video.play();
@@ -163,7 +150,7 @@ export default {
 
         this.loadingText = '正在加载模型...';
         await this.createDetector();
-        
+
         if (this.detector) {
           this.renderPrediction();
           this.isCameraOpen = true;
@@ -201,23 +188,13 @@ export default {
     },
 
     handleActionClick(action) {
-      if (!this.modelReady) {
-        this.$toast('请等待模型加载完成');
-        return;
-      }
-      this.currentDetectAction = action.value;
-      this.isAutoMode = false;
-    },
+      if (this.isAutoMode || this.isColorTesting) return;
 
-    triggerToggleFlipHorizontal() {
-      this.flipHorizontal = !this.flipHorizontal;
-      var video = this.$refs['video'];
-      if (this.flipHorizontal) {
-        video.style.transform = 'scale(-1, 1)';
-      } else {
-        video.style.transform = 'scale(1, 1)';
-      }
-      this.createDetector();
+      this.currentDetectAction = action.value;
+      this.$toast({
+        message: `请${action.name}`,
+        duration: 2000
+      });
     },
 
     async renderPrediction() {
@@ -238,29 +215,6 @@ export default {
           if (predictions.length > 0) {
             const face = predictions[0];
 
-            // 绘制所有关键点
-            face.keypoints.forEach((point, index) => {
-              ctx.beginPath();
-              ctx.arc(point.x, point.y, 1, 0, 2 * Math.PI);
-              
-              // 为不同区域的点设置不同颜色
-              if (index >= 0 && index <= 50) {
-                // 嘴巴区域点为红色
-                ctx.fillStyle = '#FF0000';
-              } else if (index >= 51 && index <= 200) {
-                // 眼睛区域点为绿色
-                ctx.fillStyle = '#00FF00';
-              } else if (index >= 201 && index <= 300) {
-                // 鼻子区域点为蓝色
-                ctx.fillStyle = '#0000FF';
-              } else {
-                // 其他区域点为黄色
-                ctx.fillStyle = '#FFFF00';
-              }
-              
-              ctx.fill();
-            });
-
             // 只在需要时执行动作检测
             if (this.currentDetectAction) {
               switch (this.currentDetectAction) {
@@ -280,48 +234,36 @@ export default {
           }
         });
       } catch (error) {
-        console.error('渲染错��:', error);
+        console.error('渲染错:', error);
         if (this.isCameraOpen) {
           this.renderPrediction(); // 发生错误时继续尝试渲染
         }
       }
     },
 
-    // 添加绘制连线的辅助方法
-    drawFaceLine(ctx, keypoints, indexes) {
-      ctx.beginPath();
-      ctx.moveTo(keypoints[indexes[0]].x, keypoints[indexes[0]].y);
-      for (let i = 1; i < indexes.length; i++) {
-        ctx.lineTo(keypoints[indexes[i]].x, keypoints[indexes[i]].y);
-      }
-      ctx.strokeStyle = '#00FF00';  // 绿色线
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    },
-
     // 眨眼检测
     isWink(face, ctx) {
       if (this.currentDetectAction !== 3) return;
-      
-      // 获取关键面部点位
+
+      // 获取���部点位
       const leftEye = face.keypoints[33];     // 左眼角
       const rightEye = face.keypoints[263];   // 右眼角
       const nose = face.keypoints[1];         // 鼻尖
       const chin = face.keypoints[152];       // 下巴
       const foreHead = face.keypoints[10];    // 前额
-      
+
       // 1. 检查水平方向的正脸（左右转头）
       const leftEyeToNose = Math.abs(leftEye.x - nose.x);
       const rightEyeToNose = Math.abs(rightEye.x - nose.x);
       const eyeDistanceDiff = Math.abs(leftEyeToNose - rightEyeToNose);
       const eyeDistance = Math.abs(rightEye.x - leftEye.x);
       const horizontalRatio = eyeDistanceDiff / eyeDistance;
-      
+
       // 2. 检查抬头角度（使用前额-鼻子-下巴的角度）
       const foreHeadToNose = Math.abs(foreHead.y - nose.y);
       const noseToChin = Math.abs(nose.y - chin.y);
       const verticalRatio = foreHeadToNose / noseToChin;
-      
+
       if (this.debugMode) {
         console.log('姿态检测:', {
           horizontalRatio,
@@ -330,55 +272,55 @@ export default {
           noseToChin
         });
       }
-      
+
       // 调整阈值：进一步放松抬头限制
       const HORIZONTAL_THRESHOLD = 0.45;      // 保持水平方向阈值不变
       const VERTICAL_THRESHOLD_MIN = 0.75;     // 保持最小阈值不变
       const VERTICAL_THRESHOLD_MAX = 2.0;     // 显著提高最大阈值，大幅放松抬头限制
-      
-      if (horizontalRatio > HORIZONTAL_THRESHOLD || 
-          verticalRatio < VERTICAL_THRESHOLD_MIN || 
-          verticalRatio > VERTICAL_THRESHOLD_MAX) {
+
+      if (horizontalRatio > HORIZONTAL_THRESHOLD ||
+        verticalRatio < VERTICAL_THRESHOLD_MIN ||
+        verticalRatio > VERTICAL_THRESHOLD_MAX) {
         if (this.debugMode) {
           console.log('请保持头部正直，不要过度抬头或低头');
         }
         return;
       }
-      
+
       // 眨眼检测逻辑保持不变
       const leftEyeUpper1 = face.keypoints[159];
       const leftEyeLower1 = face.keypoints[145];
       const rightEyeUpper1 = face.keypoints[386];
       const rightEyeLower1 = face.keypoints[374];
-      
+
       const leftEyeDistance = Math.abs(leftEyeUpper1.y - leftEyeLower1.y);
       const rightEyeDistance = Math.abs(rightEyeUpper1.y - rightEyeLower1.y);
-      
+
       const leftEyeWidth = Math.abs(face.keypoints[33].x - face.keypoints[133].x);
       const rightEyeWidth = Math.abs(face.keypoints[362].x - face.keypoints[263].x);
-      
+
       const leftEyeRatio = leftEyeDistance / leftEyeWidth;
       const rightEyeRatio = rightEyeDistance / rightEyeWidth;
-      
+
       if (this.debugMode) {
         console.log('眨眼检测:', {
           leftEyeRatio,
           rightEyeRatio
         });
       }
-      
+
       if (!this.winkState) {
         this.winkState = {
           isWinking: false,
           lastWinkTime: 0
         };
       }
-      
+
       const now = Date.now();
       const WINK_THRESHOLD = 0.25;
-      
-      if ((leftEyeRatio < WINK_THRESHOLD || rightEyeRatio < WINK_THRESHOLD) && 
-          (now - this.winkState.lastWinkTime > 500)) {
+
+      if ((leftEyeRatio < WINK_THRESHOLD || rightEyeRatio < WINK_THRESHOLD) &&
+        (now - this.winkState.lastWinkTime > 500)) {
         if (!this.winkState.isWinking) {
           this.triggerAction(3);
           this.winkState.isWinking = true;
@@ -392,19 +334,19 @@ export default {
     // 左右转头检测
     isShakingHisHead(face, ctx) {
       if (this.currentDetectAction !== 4 && this.currentDetectAction !== 5) return;
-      
+
       const nose = face.keypoints[1];
       const leftEar = face.keypoints[234];
       const rightEar = face.keypoints[454];
-      
+
       const leftDist = Math.abs(nose.x - leftEar.x);
       const rightDist = Math.abs(nose.x - rightEar.x);
       const ratio = leftDist / rightDist;
-      
+
       if (this.debugMode) {
         console.log('转头比例:', ratio);
       }
-      
+
       if (this.currentDetectAction === 4 && ratio > 1.5) {
         this.triggerAction(4);
       }
@@ -416,20 +358,20 @@ export default {
     // 抬头检测
     isLookingUp(face, ctx) {
       if (this.currentDetectAction !== 6) return;
-      
+
       // 使用眼睛和嘴巴的位置来判断抬头
       const leftEye = face.keypoints[159];  // 左眼中心
       const rightEye = face.keypoints[386];  // 右眼中心
       const mouth = face.keypoints[0];  // 嘴巴中心
-      
+
       // 计算眼睛和嘴巴的垂直距离比例
       const eyeY = (leftEye.y + rightEye.y) / 2;
       const ratio = (mouth.y - eyeY) / this.height;
-      
+
       if (this.debugMode) {
         console.log('抬头比例:', ratio);
       }
-      
+
       // 调整阈值：从 0.15 改为 0.12，进一步降低灵敏度
       if (ratio < 0.12) {
         this.triggerAction(6);
@@ -439,25 +381,25 @@ export default {
     // 低头检测
     isLookingDown(face, ctx) {
       if (this.currentDetectAction !== 7) return;
-      
+
       // 获取关键点
       const nose = face.keypoints[1];        // 鼻尖
-      const leftEye = face.keypoints[33];    // 左眼角
+      const leftEye = face.keypoints[33];    // 左眼
       const rightEye = face.keypoints[263];  // 右眼角
       const chin = face.keypoints[152];      // 下巴
-      
+
       // 计算眼睛中点的y坐标
       const eyesCenterY = (leftEye.y + rightEye.y) / 2;
-      
+
       // 计算鼻子到眼睛中点的垂直距离
       const noseToEyesDistance = nose.y - eyesCenterY;
-      
+
       // 计算下巴到眼睛的垂直距离
       const chinToEyesDistance = chin.y - eyesCenterY;
-      
+
       // 计算低头比率
       const lookDownRatio = noseToEyesDistance / chinToEyesDistance;
-      
+
       if (this.debugMode) {
         console.log('低头检测:', {
           noseToEyesDistance,
@@ -465,16 +407,16 @@ export default {
           lookDownRatio
         });
       }
-      
+
       // 初始化低头状态
       if (!this.lookDownState) {
         this.lookDownState = {
           isLookingDown: false
         };
       }
-      
+
       const LOOK_DOWN_THRESHOLD = 0.45; // 增加阈值，使其需要更明显的低头动作
-      
+
       if (lookDownRatio > LOOK_DOWN_THRESHOLD) {
         if (!this.lookDownState.isLookingDown) {
           this.triggerAction(7);
@@ -488,18 +430,18 @@ export default {
     // 张嘴检测
     isOpenMouth(face, ctx) {
       if (this.currentDetectAction !== 2) return;
-      
+
       // 获取关键点
       const upperLip = face.keypoints[13];    // 上嘴唇
       const lowerLip = face.keypoints[14];    // 下嘴唇
       const leftMouth = face.keypoints[78];   // 嘴角左
       const rightMouth = face.keypoints[308]; // 嘴角右
-      
+
       // 计算嘴巴开合程度
       const mouthHeight = Math.abs(upperLip.y - lowerLip.y);
       const mouthWidth = Math.abs(leftMouth.x - rightMouth.x);
       const mouthRatio = mouthHeight / mouthWidth;
-      
+
       if (this.debugMode) {
         console.log('张嘴检测:', {
           mouthHeight,
@@ -507,10 +449,10 @@ export default {
           mouthRatio
         });
       }
-      
+
       // 调整阈值：放宽张嘴判定
       const MOUTH_OPEN_THRESHOLD = 0.35;  // 从 0.4 降低到 0.35，放宽张嘴要求
-      
+
       if (mouthRatio > MOUTH_OPEN_THRESHOLD) {
         this.triggerAction(2);
       }
@@ -522,7 +464,7 @@ export default {
       let bottom = 0;
       let left = 0;
       let right = 0;
-      
+
       indexes.forEach(index => {
         let point = keypoints[index];
         if (!top || point.y < top) top = point.y;
@@ -530,7 +472,7 @@ export default {
         if (!left || point.x < left) left = point.x;
         if (!right || point.x > right) right = point.x;
       });
-      
+
       return (bottom - top) / (right - left);
     },
 
@@ -554,10 +496,10 @@ export default {
       if (now - this.lastActionTime < this.actionCooldown) {
         return; // 如果在冷却时间内，不触发动作
       }
-      
+
       if (this.currentDetectAction === actionValue) {
         this.lastActionTime = now;
-        
+
         if (this.isAutoMode) {
           this.currentAutoIndex++;
           if (this.currentAutoIndex >= this.autoActionList.length) {
@@ -589,16 +531,16 @@ export default {
     // 左转头检测
     isLookingLeft(face, ctx) {
       if (this.currentDetectAction !== 4) return;
-      
+
       const leftEye = face.keypoints[33];   // 左眼角
       const rightEye = face.keypoints[263]; // 右眼角
       const nose = face.keypoints[1];       // 鼻尖
-      
+
       const leftEyeToNose = Math.abs(leftEye.x - nose.x);
       const rightEyeToNose = Math.abs(rightEye.x - nose.x);
-      
+
       const eyeNoseDiff = leftEyeToNose - rightEyeToNose;
-      
+
       if (this.debugMode) {
         console.log('左转头检测:', {
           leftEyeToNose,
@@ -606,15 +548,15 @@ export default {
           eyeNoseDiff
         });
       }
-      
+
       if (!this.lookLeftState) {
         this.lookLeftState = {
           isLookingLeft: false
         };
       }
-      
+
       const LOOK_LEFT_THRESHOLD = 50; // 调整到 50
-      
+
       if (eyeNoseDiff > LOOK_LEFT_THRESHOLD) {
         if (!this.lookLeftState.isLookingLeft) {
           this.triggerAction(4);
@@ -628,16 +570,16 @@ export default {
     // 右转头检测
     isLookingRight(face, ctx) {
       if (this.currentDetectAction !== 5) return;
-      
+
       const leftEye = face.keypoints[33];   // 左眼角
       const rightEye = face.keypoints[263]; // 右眼角
       const nose = face.keypoints[1];       // 鼻尖
-      
+
       const leftEyeToNose = Math.abs(leftEye.x - nose.x);
       const rightEyeToNose = Math.abs(rightEye.x - nose.x);
-      
+
       const eyeNoseDiff = rightEyeToNose - leftEyeToNose;
-      
+
       if (this.debugMode) {
         console.log('右转头检测:', {
           leftEyeToNose,
@@ -645,15 +587,15 @@ export default {
           eyeNoseDiff
         });
       }
-      
+
       if (!this.lookRightState) {
         this.lookRightState = {
           isLookingRight: false
         };
       }
-      
+
       const LOOK_RIGHT_THRESHOLD = 50; // 调整到 50
-      
+
       if (eyeNoseDiff > LOOK_RIGHT_THRESHOLD) {
         if (!this.lookRightState.isLookingRight) {
           this.triggerAction(5);
@@ -662,6 +604,273 @@ export default {
       } else {
         this.lookRightState.isLookingRight = false;
       }
+    },
+
+    // 修改自动模式的动作验证成功处理
+    async handleActionSuccess() {
+      if (!this.isAutoMode) return;
+
+      this.currentAutoIndex++;
+
+      if (this.currentAutoIndex < this.autoActionList.length) {
+        // 还有下一个动作
+        this.currentDetectAction = this.autoActionList[this.currentAutoIndex].value;
+        this.$toast({
+          message: `请${this.autoActionList[this.currentAutoIndex].name}`,
+          duration: 2000
+        });
+      } else {
+        // 所有动作完成，开始颜色验证程
+        this.currentDetectAction = null;
+
+        // 显示完成提示
+        await this.$toast({
+          message: '恭喜！所有动作已完成！',
+          duration: 1500
+        });
+
+        // 等待提示消失后开始颜色验证
+        setTimeout(async () => {
+          await this.startColorValidation();
+        }, 1500);
+      }
+    },
+
+    // 颜色验证流程
+    async startColorValidation() {
+      if (this.isColorTesting) return;
+
+      this.isColorTesting = true;
+      this.currentDetectAction = null; // 清除当前动作检测
+
+      this.$toast({
+        message: '即将进行活体检测，请保持面部在画面中',
+        duration: 1500
+      });
+
+      // 等待提示显示完
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // 执行颜色验证
+      const isValid = await this.performColorValidation();
+
+      if (isValid) {
+        this.$toast({
+          message: '验证通过！',
+          duration: 2000
+        });
+        this.$emit('verify-success');
+      } else {
+        this.$toast({
+          message: '验证失败，请使用真人验证',
+          duration: 2000
+        });
+      }
+
+      // 重置状态
+      this.isColorTesting = false;
+    },
+
+    // 重置自动模式
+    resetAutoMode() {
+      this.isAutoMode = false;
+      this.currentAutoIndex = 0;
+      this.currentDetectAction = null;
+      this.autoActionList = [];
+    },
+
+    // 修改颜色验证执行方法
+    async performColorValidation() {
+      this.createColorOverlay();
+      
+      const testColors = [
+        '#FF0000',   // 红色
+        '#00FF00',   // 绿色
+        '#0000FF'    // 蓝色
+      ];
+      
+      const results = [];
+      const shuffledColors = testColors.sort(() => Math.random() - 0.5);
+      
+      for (let i = 0; i < shuffledColors.length; i++) {
+        const color = shuffledColors[i];
+        
+        // 直接显示颜色，不需要等待
+        this.colorOverlay.style.backgroundColor = color;
+        
+        // 等待颜色稳定
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        // 多次采样取最佳结果
+        let bestResult = false;
+        for(let j = 0; j < 3; j++) {
+          const result = await this.analyzeColorReflection(color);
+          if (result) {
+            bestResult = true;
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        results.push(bestResult);
+        
+        if (this.debugMode) {
+          console.log(`颜色 ${color} 检测结果:`, bestResult);
+        }
+      }
+      
+      this.removeColorOverlay();
+      
+      // 只要有两种颜色检测通过即可
+      const passCount = results.filter(Boolean).length;
+      return passCount >= 2;
+    },
+
+    // 创建颜色遮罩
+    createColorOverlay() {
+      this.colorOverlay = document.createElement('div');
+      Object.assign(this.colorOverlay.style, {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'transparent',
+        zIndex: 9,
+        opacity: 1,
+        transition: 'background-color 0.1s ease'
+      });
+      document.body.appendChild(this.colorOverlay);
+    },
+
+    // 移除颜色遮罩
+    removeColorOverlay() {
+      if (this.colorOverlay && this.colorOverlay.parentNode) {
+        this.colorOverlay.parentNode.removeChild(this.colorOverlay);
+        this.colorOverlay = null;
+      }
+    },
+
+    // 分析颜色反射
+    async analyzeColorReflection(currentColor) {
+      const video = this.$refs.video;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const faces = await this.detector.estimateFaces(video);
+      if (!faces || faces.length === 0) return false;
+
+      const face = faces[0];
+      const faceBox = this.getFaceBoundingBox(face);
+
+      const imageData = ctx.getImageData(
+        faceBox.x,
+        faceBox.y,
+        faceBox.width,
+        faceBox.height
+      );
+
+      return this.analyzeColorData(imageData.data, currentColor);
+    },
+
+    // 获取人脸边界框
+    getFaceBoundingBox(face) {
+      let minX = Infinity, minY = Infinity;
+      let maxX = -Infinity, maxY = -Infinity;
+
+      face.keypoints.forEach(point => {
+        minX = Math.min(minX, point.x);
+        minY = Math.min(minY, point.y);
+        maxX = Math.max(maxX, point.x);
+        maxY = Math.max(maxY, point.y);
+      });
+
+      return {
+        x: Math.max(0, minX),
+        y: Math.max(0, minY),
+        width: maxX - minX,
+        height: maxY - minY
+      };
+    },
+
+    // 分颜色数据
+    analyzeColorData(data, currentColor) {
+      const expectedColor = this.hexToRgb(currentColor);
+      let totalPixels = 0;
+      
+      // 计算平均RGB值
+      let avgR = 0, avgG = 0, avgB = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        avgR += data[i];
+        avgG += data[i + 1];
+        avgB += data[i + 2];
+        totalPixels++;
+      }
+      
+      avgR = avgR / totalPixels;
+      avgG = avgG / totalPixels;
+      avgB = avgB / totalPixels;
+      
+      // 计算RGB比例
+      const totalValue = avgR + avgG + avgB;
+      const rRatio = avgR / totalValue;
+      const gRatio = avgG / totalValue;
+      const bRatio = avgB / totalValue;
+      
+      if (this.debugMode) {
+        console.log('平均RGB值:', {avgR, avgG, avgB});
+        console.log('RGB比例:', {
+          rRatio: (rRatio * 100).toFixed(2) + '%',
+          gRatio: (gRatio * 100).toFixed(2) + '%',
+          bRatio: (bRatio * 100).toFixed(2) + '%'
+        });
+      }
+      
+      // 根据颜色比例判断
+      switch (expectedColor.dominant) {
+        case 'r':
+          return rRatio > 0.41; // R比例应该大于41%
+        case 'g':
+          return gRatio > 0.32; // G比例应该大于32%
+        case 'b':
+          return bRatio > 0.31; // B比例应该大于31%
+        default:
+          return false;
+      }
+    },
+
+    // 十六进制转RGB
+    hexToRgb(hex) {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      const color = {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      };
+
+      const max = Math.max(color.r, color.g, color.b);
+      if (color.r === color.g && color.g === color.b) {
+        color.dominant = 'white';
+      } else if (max === color.r) {
+        color.dominant = 'r';
+      } else if (max === color.g) {
+        color.dominant = 'g';
+      } else {
+        color.dominant = 'b';
+      }
+
+      return color;
+    },
+
+    // 分析验证结果
+    analyzeValidationResults(results) {
+      const passRate = results.filter(Boolean).length / results.length;
+      return passRate > 0.5;
     }
   },
 
@@ -673,6 +882,10 @@ export default {
     }
     if (this.rafId) {
       cancelAnimationFrame(this.rafId);
+    }
+    this.removeColorOverlay();
+    if (this.isColorTesting) {
+      this.isColorTesting = false;
     }
   },
 
@@ -723,9 +936,15 @@ export default {
 }
 
 .Camera-wrapper {
-  margin: 1em auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   position: relative;
-  overflow: hidden;
+  z-index: 10;
+  margin: 0 auto;
+  border-radius: 50%;
+  padding: 3px;
+  margin: 0 auto;
 }
 
 .van-circle {
@@ -737,17 +956,14 @@ export default {
 
 .canvas-wrapper {
   position: relative;
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
-  margin: 0 auto;
   border-radius: 50%;
   overflow: hidden;
 }
 
 .canvas-wrapper>video {
-  background: #000;
+  position: absolute;
+  top: 0;
+  left: 0;
   border-radius: 50%;
   overflow: hidden;
 }
@@ -907,16 +1123,30 @@ export default {
 
 .loading-content {
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   cursor: pointer;
-  
+
   .van-loading {
     margin-bottom: 10px;
   }
-  
+
   span {
     display: block;
     color: #666;
     font-size: 14px;
   }
+}
+
+/* 可以添加一些样式来突出颜色验证按钮 */
+.action-buttons .van-button--primary {
+  background-color: #1989fa;
+  border-color: #1989fa;
+}
+
+.action-buttons .van-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>
