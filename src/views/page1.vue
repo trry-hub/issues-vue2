@@ -4,7 +4,7 @@
       <div class="canvas-wrapper" :style="{ width: width + 'px', height: height + 'px' }">
         <video ref="video" :width="width" :height="height" webkit-playsinline="true" playsinline="true" preload autoplay
                loop muted style="transform: scale(-1, 1);"></video>
-        <canvas ref="canvas" :width="width" :height="height" style="transform: scale(-1, 1);"></canvas>
+        <canvas ref="canvas" :width="width" :height="height" style="display: none;"></canvas>
       </div>
     </div>
 
@@ -245,7 +245,7 @@ export default {
     isWink(face, ctx) {
       if (this.currentDetectAction !== 3) return;
 
-      // 获取���部点位
+      // 获取
       const leftEye = face.keypoints[33];     // 左眼角
       const rightEye = face.keypoints[263];   // 右眼角
       const nose = face.keypoints[1];         // 鼻尖
@@ -662,7 +662,7 @@ export default {
         this.$emit('verify-success');
       } else {
         this.$toast({
-          message: '验证失败，请使用真人验证',
+          message: '验证失败，请使用真验证',
           duration: 2000
         });
       }
@@ -694,34 +694,34 @@ export default {
       
       for (let i = 0; i < shuffledColors.length; i++) {
         const color = shuffledColors[i];
-        
-        // 直接显示颜色，不需要等待
         this.colorOverlay.style.backgroundColor = color;
         
-        // 等待颜色稳定
+        // 等待颜色反射稳定
         await new Promise(resolve => setTimeout(resolve, 800));
         
-        // 多次采样取最佳结果
-        let bestResult = false;
-        for(let j = 0; j < 3; j++) {
+        // 增加采样次数到5次，并使用多数表决
+        const sampleResults = [];
+        for(let j = 0; j < 5; j++) {
           const result = await this.analyzeColorReflection(color);
-          if (result) {
-            bestResult = true;
-            break;
-          }
+          sampleResults.push(result);
           await new Promise(resolve => setTimeout(resolve, 100));
         }
+        
+        // 使用多数表决确定最终结果
+        const trueCount = sampleResults.filter(Boolean).length;
+        const bestResult = trueCount >= 3; // 超过半数即为通过
         
         results.push(bestResult);
         
         if (this.debugMode) {
-          console.log(`颜色 ${color} 检测结果:`, bestResult);
+          console.log(`颜色 ${color} 采样结果:`, sampleResults);
+          console.log(`颜色 ${color} 最终结果:`, bestResult);
         }
       }
       
       this.removeColorOverlay();
       
-      // 只要有两种颜色检测通过即可
+      // 要求至少两种颜色通过
       const passCount = results.filter(Boolean).length;
       return passCount >= 2;
     },
@@ -831,14 +831,25 @@ export default {
         });
       }
       
-      // 根据颜色比例判断
+      // 根据颜色比例变化判断
       switch (expectedColor.dominant) {
         case 'r':
-          return rRatio > 0.41; // R比例应该大于41%
+          // 红色时，R比例应该大于40.5%，且明显大于G和B
+          return rRatio > 0.40 && (rRatio - gRatio) > 0.07;
         case 'g':
-          return gRatio > 0.32; // G比例应该大于32%
+          // 绿色时，关注G比例的相对变化
+          return gRatio > 0.31 && (
+            (gRatio > 0.32) || // G比例超过32%
+            (gRatio / rRatio > 0.785) || // G/R比例提高
+            (gRatio / bRatio > 1.17) // G/B比例提高
+          );
         case 'b':
-          return bRatio > 0.31; // B比例应该大于31%
+          // 蓝色时，关注B比例的相对变化
+          return bRatio > 0.27 && (
+            (bRatio > 0.275) || // B比例超过27.5%
+            (bRatio / gRatio > 0.88) || // B/G比例提高
+            (gRatio - bRatio < 0.037) // G和B的差距减小
+          );
         default:
           return false;
       }
